@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bank DApp (Infura)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --accent:#f97316; --ok:#22c55e; --err:#ef4444; --border:#334155; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); padding:24px 16px; }
+  .wrap { max-width:640px; margin:0 auto; }
+  h1 { margin:0 0 4px; font-size:28px; }
+  .student { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin:16px 0; }
+  .student b { color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 12px; font-size:18px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  input { flex:1; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:15px; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+  .muted { color:var(--muted); font-size:14px; word-break:break-all; }
+  .big { font-size:26px; font-weight:700; margin:8px 0; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:var(--bg); border:1px solid var(--border); }
+  #status { padding:10px 12px; border-radius:8px; font-size:14px; background:var(--bg); border:1px solid var(--border); word-break:break-all; }
+  .ok { color:var(--ok); } .err { color:var(--err); }
+  ul { padding-left:18px; margin:0; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏦 Bank DApp <span class="badge">via Infura</span></h1>
+  <div class="muted">อ่านข้อมูล blockchain ผ่าน Infura RPC · ส่งธุรกรรมผ่าน Metamask</div>
+
+  <div class="student">
+    รหัสนักศึกษา: <b id="sid"></b><br>
+    ชื่อ-สกุล: <b id="sname"></b>
+  </div>
+
+  <div class="card">
+    <h2>1. เชื่อมต่อ Infura</h2>
+    <p class="muted">Endpoint: <span id="infuraUrl">-</span><br>Network: <span id="infuraNet">-</span><br>Latest block: <span id="infuraBlock">-</span></p>
+  </div>
+
+  <div class="card">
+    <h2>2. เชื่อมต่อ Smart Contract (ผ่าน Infura)</h2>
+    <div class="row">
+      <input id="contractAddr" placeholder="Contract address 0x...">
+      <button id="btnContract">Connect Contract</button>
+    </div>
+    <p class="muted">Contract: <span id="contractStatus">ยังไม่ได้เชื่อมต่อ</span></p>
+  </div>
+
+  <div class="card">
+    <h2>3. เชื่อมต่อ Metamask</h2>
+    <button id="btnConnect">Connect Metamask</button>
+    <p class="muted">Account: <span id="account">-</span><br>Wallet balance (อ่านผ่าน Infura): <span id="walletBal">-</span> ETH</p>
+  </div>
+
+  <div class="card">
+    <h2>4. Check Balance</h2>
+    <button id="btnCheck">Check Balance</button>
+    <div class="big"><span id="bankBal">-</span> ETH</div>
+  </div>
+
+  <div class="card">
+    <h2>5. Deposit</h2>
+    <div class="row">
+      <input id="depositAmt" type="number" min="0" step="any" placeholder="จำนวน ETH">
+      <button id="btnDeposit">Deposit</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>6. Withdraw</h2>
+    <div class="row">
+      <input id="withdrawAmt" type="number" min="0" step="any" placeholder="จำนวน ETH">
+      <button id="btnWithdraw">Withdraw</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div id="status">กำลังเชื่อมต่อ Infura...</div>
+  </div>
+
+  <div class="card">
+    <h2>ประวัติธุรกรรม (Events ผ่าน Infura)</h2>
+    <ul id="events"><li class="muted">-</li></ul>
+  </div>
+</div>
+
+<script>
+// ===== แก้ข้อมูลตรงนี้ =====
+const STUDENT_ID   = "66016519";
+const STUDENT_NAME = "พบพร จิตโสภา";
+const INFURA_API_KEY = "PASTE_INFURA_API_KEY_HERE";
+const CONTRACT_ADDRESS = "0xfCB4D30489166861a68ed782e61Be4DF74fF71F1"; // Bank on Sepolia
+// ==========================
+
+const INFURA_URL = "https://sepolia.infura.io/v3/" + INFURA_API_KEY;
+const SEPOLIA_CHAIN_ID = "0xaa36a7";
+const ABI = [
+  "function deposit() payable",
+  "function withdraw(uint amount)",
+  "function checkBlance() view returns (uint balance)",
+  "event Deposit(address indexed owner, uint amount)",
+  "event Withdraw(address indexed owner, uint amount)"
+];
+
+// provider สำหรับอ่านข้อมูล = Infura, signer สำหรับส่งธุรกรรม = Metamask
+const infura = new ethers.JsonRpcProvider(INFURA_URL, 11155111, { staticNetwork: true });
+let readContract, writeContract, signer, account;
+const $ = id => document.getElementById(id);
+$("sid").textContent = STUDENT_ID;
+$("sname").textContent = STUDENT_NAME;
+$("contractAddr").value = CONTRACT_ADDRESS;
+$("infuraUrl").textContent = "https://sepolia.infura.io/v3/" + INFURA_API_KEY.slice(0, 6) + "...";
+
+function setStatus(msg, type = "") { $("status").innerHTML = `<span class="${type}">${msg}</span>`; }
+function errMsg(e) { return e?.shortMessage || e?.reason || e?.info?.error?.message || e?.message || String(e); }
+
+async function connectInfura() {
+  try {
+    const net = await infura.getNetwork();
+    const block = await infura.getBlockNumber();
+    $("infuraNet").textContent = `${net.name} (chainId ${net.chainId})`;
+    $("infuraBlock").textContent = block;
+    setStatus("เชื่อมต่อ Infura สำเร็จ", "ok");
+    await connectContract();
+  } catch (e) { setStatus("เชื่อมต่อ Infura ไม่สำเร็จ: " + errMsg(e), "err"); }
+}
+
+async function connectContract() {
+  const addr = $("contractAddr").value.trim();
+  if (!ethers.isAddress(addr)) { setStatus("Contract address ไม่ถูกต้อง", "err"); return; }
+  try {
+    const code = await infura.getCode(addr);
+    if (code === "0x") { setStatus("ไม่พบ contract ที่ address นี้บน Sepolia", "err"); return; }
+    readContract = new ethers.Contract(addr, ABI, infura);
+    if (signer) writeContract = new ethers.Contract(addr, ABI, signer);
+    $("contractStatus").textContent = addr + " ✅";
+    setStatus("เชื่อมต่อ Smart Contract ผ่าน Infura สำเร็จ", "ok");
+    if (account) { await checkBalance(); await loadEvents(); }
+  } catch (e) { setStatus("เชื่อมต่อ contract ไม่สำเร็จ: " + errMsg(e), "err"); }
+}
+
+async function connectWallet() {
+  if (!window.ethereum) { setStatus("ไม่พบ Metamask กรุณาติดตั้งก่อน", "err"); return; }
+  try {
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    try { await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA_CHAIN_ID }] }); } catch (e) {}
+    const browser = new ethers.BrowserProvider(window.ethereum);
+    signer = await browser.getSigner();
+    account = await signer.getAddress();
+    $("account").textContent = account;
+    if (readContract) writeContract = new ethers.Contract(await readContract.getAddress(), ABI, signer);
+    await refreshWallet();
+    setStatus("เชื่อมต่อ Metamask สำเร็จ", "ok");
+    if (readContract) { await checkBalance(); await loadEvents(); }
+  } catch (e) { setStatus("เชื่อมต่อ Metamask ไม่สำเร็จ: " + errMsg(e), "err"); }
+}
+
+async function refreshWallet() {
+  if (!account) return;
+  $("walletBal").textContent = ethers.formatEther(await infura.getBalance(account));
+}
+
+function ready(needWallet) {
+  if (!readContract) { setStatus("กรุณาเชื่อมต่อ Smart Contract ก่อน", "err"); return false; }
+  if (needWallet && !account) { setStatus("กรุณาเชื่อมต่อ Metamask ก่อน", "err"); return false; }
+  return true;
+}
+
+// checkBlance ใช้ msg.sender จึงต้องระบุ from = account ของเรา (เรียกผ่าน Infura)
+async function checkBalance() {
+  if (!ready(true)) return;
+  try {
+    const bal = await readContract.checkBlance({ from: account });
+    $("bankBal").textContent = ethers.formatEther(bal);
+  } catch (e) { setStatus("Check balance ไม่สำเร็จ: " + errMsg(e), "err"); }
+}
+
+async function sendTx(label, fn) {
+  try {
+    setStatus("กรุณายืนยันใน Metamask...");
+    const tx = await fn();
+    setStatus("ส่งแล้ว รอยืนยันผ่าน Infura... " + tx.hash);
+    await infura.waitForTransaction(tx.hash);
+    setStatus(label + " สำเร็จ", "ok");
+    await checkBalance(); await refreshWallet(); await loadEvents();
+  } catch (e) { setStatus(label + " ไม่สำเร็จ: " + errMsg(e), "err"); }
+}
+
+async function deposit() {
+  if (!ready(true)) return;
+  const amt = $("depositAmt").value;
+  if (!amt || Number(amt) <= 0) { setStatus("กรุณาใส่จำนวนที่มากกว่า 0", "err"); return; }
+  await sendTx(`Deposit ${amt} ETH`, () => writeContract.deposit({ value: ethers.parseEther(amt) }));
+  $("depositAmt").value = "";
+}
+
+async function withdraw() {
+  if (!ready(true)) return;
+  const amt = $("withdrawAmt").value;
+  if (!amt || Number(amt) <= 0) { setStatus("กรุณาใส่จำนวนที่มากกว่า 0", "err"); return; }
+  await sendTx(`Withdraw ${amt} ETH`, () => writeContract.withdraw(ethers.parseEther(amt)));
+  $("withdrawAmt").value = "";
+}
+
+async function loadEvents() {
+  if (!readContract || !account) return;
+  try {
+    const latest = await infura.getBlockNumber();
+    const from = Math.max(0, latest - 9000);
+    const d = await readContract.queryFilter(readContract.filters.Deposit(account), from, latest);
+    const w = await readContract.queryFilter(readContract.filters.Withdraw(account), from, latest);
+    const all = [...d.map(x => ({ t: "Deposit", e: x })), ...w.map(x => ({ t: "Withdraw", e: x }))]
+      .sort((a, b) => b.e.blockNumber - a.e.blockNumber);
+    $("events").innerHTML = all.length
+      ? all.map(x => `<li>${x.t === "Deposit" ? "⬆️" : "⬇️"} ${x.t} ${ethers.formatEther(x.e.args.amount)} ETH <span class="muted">(block ${x.e.blockNumber})</span></li>`).join("")
+      : '<li class="muted">ยังไม่มีธุรกรรม</li>';
+  } catch (e) {}
+}
+
+$("btnContract").onclick = connectContract;
+$("btnConnect").onclick = connectWallet;
+$("btnCheck").onclick = checkBalance;
+$("btnDeposit").onclick = deposit;
+$("btnWithdraw").onclick = withdraw;
+
+if (window.ethereum) {
+  window.ethereum.on("accountsChanged", () => location.reload());
+  window.ethereum.on("chainChanged", () => location.reload());
+}
+
+connectInfura();
+setInterval(async () => { try { $("infuraBlock").textContent = await infura.getBlockNumber(); } catch (e) {} }, 15000);
+</script>
+</body>
+</html>
