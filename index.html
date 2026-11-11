@@ -108,7 +108,7 @@ const ABI = [
 ];
 
 // provider สำหรับอ่านข้อมูล = Infura, signer สำหรับส่งธุรกรรม = Metamask
-const infura = new ethers.JsonRpcProvider(INFURA_URL, 11155111, { staticNetwork: true });
+const infura = new ethers.JsonRpcProvider(INFURA_URL, 11155111, { staticNetwork: ethers.Network.from(11155111) });
 let readContract, writeContract, signer, account;
 const $ = id => document.getElementById(id);
 $("sid").textContent = STUDENT_ID;
